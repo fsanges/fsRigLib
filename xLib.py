@@ -1,5 +1,5 @@
 '''
-Copyright 2013
+Copyright MIT 2013
 Author: Felipe Sanges
 
 About: Personal library of maya rigging helpers
