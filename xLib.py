@@ -17,6 +17,176 @@ import maya.OpenMaya as om
 import maya.mel as mel
 import pymel.core as pm
 
+import controlCurveShapes as ccs
+
+
+
+#######################################################################################################
+''' Wire to SkinCluster 08/05/2017 ''' #########################################################
+#######################################################################################################
+
+def wire_to_skinCluster(curve, geo, name="", jntList="", dropoffDistance=100, rotation=0.00):
+    """
+        Date : 08/05/2017
+        Author : Felipe Sanges
+        Usage :
+        curve, geo = mc.ls(sl=1)
+        rlx.wire_to_skinCluster(curve, geo, name='name', dropoffDistance=100, rotation=0.00)
+        """
+    skinGeo = mc.duplicate(geo, n=geo + '_skin')[0]
+    if not name:
+        name = 'tmp'
+    curveTPos = mc.xform(curve + ".cv[*]", q=1, ws=True, t=1)
+    posList = zip(curveTPos[::3], curveTPos[1::3], curveTPos[2::3])
+    
+    if not jntList:
+        jntList = list()
+        for i, pos in enumerate(posList):
+            grp = create_grp(name='%s_grp'%name)
+            mc.select(cl=True)
+            jnt = mc.joint(p=pos, name='%s_%02d_jnt'%(name, i ))
+            jntList.append(jnt)
+        mc.parent(jntList, grp)
+
+    #--- Skin Curve
+    crv_skin = mc.skinCluster( jntList, curve, dr=4.5, maximumInfluences=1, frontOfChain=1, toSelectedBones=1, n = 'layer_A_skC')
+    wire = mc.wire(geo, gw=False, en=1.000000, ce=0.000000, li=0.000000, w=curve )[0]
+
+#--- Set wire attrs
+mc.setAttr(wire + ".rotation", rotation)
+    mc.setAttr(wire + ".dropoffDistance[0]", dropoffDistance)
+    
+    #--- Get all vertices
+    vtxGeo = mc.ls(geo + '.vtx[*]', fl=1)
+    
+    #   Get displacement from all vertices
+    allDisplacement = []
+    
+    for j in jntList:
+        
+        displacement = []
+        for v in vtxGeo:
+            #   get initial pos
+            iniPos = mc.pointPosition(v, world=1)
+            
+            #   get deformed pos
+            mc.move(0, -1, 0, j, relative=1)
+            defPos = mc.pointPosition(v, world=1)
+            
+            #   get distance between them by subtracting the two vectors
+            iniPosV = om.MVector(iniPos[0], iniPos[1], iniPos[2])
+            defPosV = om.MVector(defPos[0], defPos[1], defPos[2])
+            
+            resultV = defPosV - iniPosV
+            
+            #   The final length of the vector is the actual final weight value already normalized
+            length = resultV.length()
+            displacement.append(length)
+            
+            mc.move(0, 1, 0, j, relative=1)
+        
+        allDisplacement.append(displacement)
+    mc.warning('DONE!!')
+
+#  skin
+mc.setAttr(wire + ".envelope", 0)
+    outSkin = mc.skinCluster( jntList, geo, dr=4.5, maximumInfluences=1, frontOfChain=1, toSelectedBones=1, n = 'outMesh_skC')
+    
+    for i, j in enumerate(jntList):
+        for x, dis in enumerate(allDisplacement[i]):
+            mc.skinPercent(outSkin[0], geo + '.vtx[' + str(x) + ']', transformValue=[(j, dis)])
+            
+            #Lock influence weights
+            mc.setAttr(j + '.liw', 1)
+
+mc.warning('Done')
+    mc.delete(wire)
+    return jntList
+
+
+
+
+#######################################################################################################
+''' FK Simple Setup 08/06/2017 ''' #########################################################
+#######################################################################################################
+
+def fk_simple_setup(inJointList, 
+                    inSuffix='Jnt', 
+                    outSuffix='Ctrl', 
+                    fkSuffix='Fk', 
+                    overallScale=1.0, 
+                    shapeFK='circleCompass', 
+                    shapeFKScale=(1.2, 1.2, 1.2), 
+                    shapeChild='circleX', 
+                    shapeChildScale=(1, 1, 1),
+                    fkColor=23,
+                    childColor=26,
+                    useShapesFromScene=False
+                    ):
+    ''' FK Simple Setup Help :
+        Creates a simple fk setup with shapes
+        08/06/2017 
+        Usage : 
+            shapeFK = ccs.cube(color=23)
+            shapeChild = ccs.sphere(color=26)
+            fkBind = rlx.fk_simple_setup(fkRbList, 
+                                inSuffix='Jnt', 
+                                outSuffix='Ctrl', 
+                                fkSuffix='Fk', 
+                                overallScale=2.0, 
+                                shapeFK=shapeFK, 
+                                shapeChild=shapeChild, 
+                                fkColor=23,
+                                childColor=26,
+                                useShapesFromScene=1) '''
+    # --- Rename chain
+    fkList = list()
+    bindList = list()
+    for s in inJointList:
+
+        if inSuffix in s:
+            fk = s.replace(inSuffix, fkSuffix)
+            trs = s.replace(inSuffix, outSuffix)
+        else:
+            fk = '%s_%s_%s'%(s, fkSuffix, outSuffix)
+            trs = s + '_' +  outSuffix
+
+        fk = mc.duplicate(s, po=1, n=fk)[0]
+        trs = mc.duplicate(s, po=1, n=trs)[0]
+        bindList.append(trs)
+
+        mc.parent(fk, s)
+        mc.parent(trs, fk)
+
+        if fkList:
+            mc.parent(s, fkList[-1])
+        fkList.append(fk)
+
+        finalScaleFk = [a * b for a, b in zip(shapeFKScale, (overallScale, overallScale, overallScale))]
+        finalScaleChld = [a * b for a, b in zip(shapeChildScale, (overallScale, overallScale, overallScale))]
+
+        if useShapesFromScene:
+            if mc.objExists(shapeFK) and mc.objExists(shapeChild):
+                fkCtrl = mc.duplicate(shapeFK, renameChildren=True)[0]
+                ctrl = mc.duplicate(shapeChild, renameChildren=True)[0]
+            else:
+                mc.warning(shapeFK)
+                mc.warning(shapeChild)
+                mc.error('Flag "useShapesFromScene" is set to true. I this case you need to make sure the shapeFK and shapeChild have existing objects!')
+        else:
+            fkCtrl = eval('ccs.%s(orientation = (0, 0, 90), scale=%s, color=%s)'%(shapeFK, finalScaleFk, fkColor))
+            ctrl = eval('ccs.%s(orientation = (0, 0, 90), scale=%s, color=%s)'%(shapeChild, finalScaleChld, childColor))
+        
+        parentShape(fkCtrl, fk)
+        parentShape(ctrl, trs)
+
+        if s == inJointList[-1]:
+            mc.parent(trs, s)
+            mc.delete(fk)
+    
+    return bindList
+
+
 
 
 #######################################################################################################
@@ -36,7 +206,8 @@ def joints_to_driver_mesh(inJointList, scale = 0.1, name='tmp'):
     faceScale = scale
     jntNum = len(inJointList)
     if jntNum < 2:
-        mc.error("Select two or more joints.")
+        #mc.error("Select two or more joints.")
+        mc.warning('One joint selected, creating a single facet mesh for joint.')
 
     faceList = list()
     for i, jnt in enumerate(inJointList):
@@ -56,37 +227,40 @@ def joints_to_driver_mesh(inJointList, scale = 0.1, name='tmp'):
         scaleUV = 1.0/gridNum
         mc.polyEditUV(face + '.map[*]',  pu=0, pv=0, scaleU=scaleUV, scaleV=scaleUV)
 
-    #  Fill uv space with square uvs by just scaling and moving each in a grid
-    #  Find u and v values for each poly uvs new pos
-    line = gridNum
-    m=0
-    lnColList = list()
-    for n in range(int(math.pow(gridNum, 2))):
-        if n == jntNum+1:
-            break
-        if not n < line:
-            line = gridNum + line
+    if not jntNum < 2:
+        #  Fill uv space with square uvs by just scaling and moving each in a grid
+        #  Find u and v values for each poly uvs new pos
+        line = gridNum
+        m=0
+        lnColList = list()
+        for n in range(int(math.pow(gridNum, 2))):
+            if n == jntNum+1:
+                break
+            if not n < line:
+                line = gridNum + line
 
-        curline = line/gridNum
-        lnColList.append([curline-1, m])
-        
-        m=m+1
-        if m==gridNum:
-            m=0
+            curline = line/gridNum
+            lnColList.append([curline-1, m])
+            
+            m=m+1
+            if m==gridNum:
+                m=0
 
-    #   Apply uv positions
-    for i, poly in enumerate(faceList):#pass
-        ln, col = lnColList[i]
-        mc.polyEditUV(faceList[i] + '.map[*]', u=scaleUV*ln, v=scaleUV*col)
+        #   Apply uv positions
+        for i, poly in enumerate(faceList):#pass
+            ln, col = lnColList[i]
+            mc.polyEditUV(faceList[i] + '.map[*]', u=scaleUV*ln, v=scaleUV*col)
 
-    #   Place polys in world space
-    for face, jnt in zip(faceList, inJointList):
-        mc.parent(face, jnt)
-        mc.makeIdentity(face, apply=False, t=1, r=1, s=1)
-        mc.parent(face, w=1)
+        #   Place polys in world space
+        for face, jnt in zip(faceList, inJointList):
+            mc.parent(face, jnt)
+            mc.makeIdentity(face, apply=False, t=1, r=1, s=1)
+            mc.parent(face, w=1)
 
-    #   Combine all
-    mesh = mc.polyUnite(faceList, ch=0, mergeUVSets=1, centerPivot=1, name=name)[0]
+        #   Combine all
+        mesh = mc.polyUnite(faceList, ch=0, mergeUVSets=1, centerPivot=1, name=name)[0]
+    else:
+        mesh = face
 
     #   Get Shape
     shape = mc.listRelatives(mesh, s=1)[0]
@@ -107,6 +281,9 @@ def joints_to_driver_mesh(inJointList, scale = 0.1, name='tmp'):
         fols = mc.createNode('follicle', n = "%s_%s_follicle_nodeShape"%(jnt, i)) #, n = mesh('mesh', 'follicle_nodeShape'), p = fol )
         fol = mc.listRelatives(fols, p=1)[0]
         #   Set uv values
+        if jntNum < 2:
+            parameterU = .5
+            parameterV = .5
         mc.setAttr('%s.parameterU'%fols, parameterU)
         mc.setAttr('%s.parameterV'%fols, parameterV)
         #   Hide follicle
@@ -409,9 +586,57 @@ def xyShrinkWrap():
     mc.select(sl, r=1)
 
 
+##########################################################
+''' Copy Skin To Nurbs - 01/06/2017 '''
+##########################################################
+
+def copy_skin_to_nurbs(inSkinnedObj, inSurface):
+    """
+    copy_skin_to_nurbs  - 01/06/2017.
+    Args:
+        inSkinnedObj: Skinned mesh PyNode object
+        inSurface: Nurbs PyNode object
+    Returns:
+        PyNode : targetSkinCluster
+    Raises:
+        None.
+    Usage :
+        copy_skin_to_nurbs(inSkinnedObj, inSurface)
+    """
+
+    poly = pm.PyNode(pm.nurbsToPoly(inSurface, format=3, ch=0)[0])
+    bindJs = [pm.PyNode(obj) for obj in getBindJoints(inSkinnedObj.name())]
+    
+    #--- Add skinCluster if it doesn't exist
+    try:
+        targetSkinCluster = inSurface.listHistory(type='skinCluster')[0]
+        #--- Make sure all bindJs are in the targetSkinCluster
+        skinnedJs = targetSkinCluster.getInfluence()
+        for j in bindJs:
+            if not j in skinnedJs:
+                targetSkinCluster.addInfluence(j)
+                pm.warning(j + ' joint added to skinCluster')
+    except:
+        targetSkinCluster = pm.skinCluster( bindJs, inSurface, dr=4.5, removeUnusedInfluence=0, maximumInfluences=1, frontOfChain=0, toSelectedBones=1, n = inSurface + '_skC')
+
+    #--- Get skinCluster from inSkinnedObj
+    skinClusterOri = inSkinnedObj.listHistory(type='skinCluster')[0]
+
+    #poly newSkinClusterDef
+    polySkinCluster = pm.skinCluster( bindJs, poly, dr=4.5, removeUnusedInfluence=0, maximumInfluences=1, frontOfChain=0, toSelectedBones=1, n = poly + '_2_skC')
+    pm.copySkinWeights( ss=skinClusterOri, ds=polySkinCluster, noMirror=True, surfaceAssociation='closestPoint', influenceAssociation='oneToOne' )
+
+    # Copy skin to inSurface components
+    pm.select(poly, inSurface.cv, r=1)
+    pm.copySkinWeights( noMirror=True, surfaceAssociation='closestPoint', influenceAssociation='oneToOne' )
+
+    pm.delete(poly)
+
+    return targetSkinCluster
+
 
 ###########################################################################
-''' Copy Weights Nurbs - (Julien Version - to be updated) 27/02/2017 ''' ###
+''' Copy Weights Nurbs - (Julien Version - depricated) 27/02/2017 ''' ###
 ###########################################################################
 def copy_weights_nurbs() :
 
@@ -1201,14 +1426,14 @@ fs_mirrorX;
 def createObjsOnSelected(objList, type='curve', degree=1 ):
     ''' 
     rlx.createObjsOnSelected(objList, type='curve', degree=1) 
-    Possible types : 'joint', 'singleJoint', 'curve', 'locator'
+    Possible types : 'curve', 'joint', 'jointChain', 'locator'
     '''
 
     posList = getPosListFromObjects(objList)
     
     resObjList = []
 
-    if type == 'joint':
+    if type == 'jointChain':
         returnObj = chainFromPositionList(posList)
 
     elif type == 'curve':
@@ -1233,19 +1458,20 @@ def createObjsOnSelected(objList, type='curve', degree=1 ):
         returnObj = resObjList
 
 
-    elif type == 'singleJoint':
+    elif type == 'joint':
         
-        grp = mc.createNode('transform', n='single_jnt_grp')
+        grp = mc.createNode('transform', n='joints_grp')
 
         for p in posList:
             mc.select(cl=1)
             sJnt = mc.joint(p=(p))
             mc.parent(sJnt, grp)
+            resObjList.append(sJnt)
 
         returnObj = resObjList
 
     else:
-        mc.error('type flag must be joint, curve, locator or singleJoint!')
+        mc.error('type flag must be joint, jointChain, curve, or locator!')
     
     if returnObj:
         return posList, returnObj
@@ -1520,6 +1746,11 @@ def fkSetup(inJointList, name='tmp'):
 ############################################################################################################################################
 
 def unparentHierarchy(inObject):
+    '''
+    Usage : 
+    childParentList = rlx.unparentHierarchy(inObjects)
+    rlx.reparentHierarchy(childParentList)
+    '''
     #inObject = mc.ls(sl=1, long=True)[0]
     mc.select(inObject, hi=True)
     allObj = mc.ls(sl=1, type="joint")
@@ -1565,8 +1796,8 @@ def createSmearSkinGen(inJoints, inMesh, divisions = 2):
     smooth = mc.duplicate(inMesh, n=inMesh + '_smooth')[0]
 
     blnd = mc.blendShape(inMesh, smooth, n='output_blnd', weight=[0,1.0])[0]
-    targets = mc.listAttr(blnd + '.w', m=1)
-    mc.setAttr(blnd + '.' + targets[0], 1, lock=1)
+    #targets = mc.listAttr(blnd + '.w', m=1)
+    #mc.setAttr(blnd + '.' + targets[0], 1, lock=1)
 
     pSmooth = mc.polySmooth(smooth, keepBorder=False, divisions=divisions)[0]
 
@@ -1981,8 +2212,72 @@ def chainFromPositionList(inPositionList):
     return jointList
 
 
-#createJntChainFromSurfaceHulls(direction = 'v')
 
+def chain_from_surface(inSurfaceObj, direction='u', upVector=(0, 1, 0)):
+    """ Creates a chain oriented by surface normals 
+    Todo : add numOfJoints=10?
+           add check if is an PyNode or a string 
+    Usage : res = rlx.chain_from_surface(inSurfaceObj, direction='u', upVector=(0, 1, 0))
+    OBS : inSurfaceObj is an pymel object!
+    """
+
+    chain = createJntChainFromSurfaceHulls(inSurfaceObj.name(), direction=direction)
+
+    posList = getPosListFromObjects(chain)
+    for i, j in enumerate(chain):#pass
+
+        jnt = pm.PyNode(j)
+
+        # --- Get pos
+        if j == chain[-1]:
+            pm.makeIdentity(jnt, jointOrient=1, apply=0)
+
+        # Create tmp follicle
+        fol =  follicle_to_closest_point(inSurfaceObj.name(), [posList[i]])[0]
+        f = pm.PyNode(fol)
+        # --- Set V to .5
+        f.parameterV.set(.5)
+
+        aim = pm.spaceLocator()
+        up = pm.spaceLocator()
+
+        #--- Position aim
+        pm.parent(aim, jnt)
+        pm.makeIdentity(aim, t=1, r=1, apply=0)
+        aim.tx.set(10)
+
+        #--- Position upv
+        pm.parent(up, fol)
+        pm.makeIdentity(up, t=1, r=1, apply=0)
+        up.tz.set(10)
+
+        pm.parent(aim, up, w=1)
+
+        if not j == chain[-1]:
+            child = jnt.getChildren()[0]
+            pm.parent(child, w=1)
+            off = pm.PyNode( createOffsetTransform(jnt.name()))
+            acon = pm.aimConstraint(aim, off, aimVector=(1, 0, 0), upVector=upVector, worldUpType="object", worldUpObject=up)
+            
+            if j == chain[0]:
+                pm.parent(jnt, w=1)
+            else:
+                pm.parent(jnt, off.getParent())
+
+            pm.parent(child, jnt)
+
+        else:
+            off = pm.PyNode( createOffsetTransform(jnt.name()))
+            acon = pm.aimConstraint(aim, off, aimVector=(1, 0, 0), upVector=upVector, worldUpType="object", worldUpObject=up)
+            pm.delete(acon)
+            pm.parent(jnt, off.getParent())
+
+        pm.delete(off, aim, up, f.getParent())
+
+    return chain
+
+
+ 
 #######################################################################################################
 ''' toggleJointDrawStyle 2011 ''' #####################################################################
 #######################################################################################################
@@ -3053,13 +3348,3 @@ def createOffsetTransform(inObject, name=''):
     
     return dup
 
-
-#################################################################################################################################
-''' create Offset Duplicate '''
-############################################################################################################################################
-
-def createOffsetDuplicate(inTrasform, name='offset_null'):
-    dup = mc.duplicate(inTrasform, po=1, n=name)[0]
-    mc.parent(inTrasform, dup)
-    
-    return dup
