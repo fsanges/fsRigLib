@@ -454,138 +454,6 @@ def follicle_to_closest_point(inSurface, inPosList, name='tmp'):
     return folList
 
 
-#######################################################################################################
-''' xyShrinkWrap 03/04/2017 ''' #########################################################
-#######################################################################################################
-
-def xyShrinkWrap():
-    '''- createMeasureOnSelected help
-    
-    Description:  Temporary mel version from xyShrinkWrap
-    Dependencies: NONE
-    Date:         03/04/2017
-    Example:      startObj, targetObj = mc.ls(sl=1)
-                  res = xyShrinkWrap(startObj, targetObj)
-    
-    '''
-    #mc.select(startObj, targetObj, r=1)
-    sl = mc.ls(sl=1)
-    mel.eval('''
-    proc warn( string $mod, string $msg )
-    {
-        warning("xyShrinkWrap::"+$mod+"(): "+$msg);
-    }
-
-
-    global proc string toshape( string $n )
-    {
-        string	$s[];
-
-        if (objExists($n))
-        {
-            $s=`listRelatives -pa -s -ni $n`;
-            $s=`ls -type controlPoint $n $s[0]`;
-        }
-        
-        return($s[0]);
-    }
-
-
-    proc wrapc( string $c, string $n ) // component (node.attr), wrapper transform
-    {
-        float	$p[];
-        
-        $p=`xform -q -ws -t $c`; xform -ws -t $p[0] $p[1] $p[2] $n;
-        $p=`xform -q -ws -t $n`; xform -ws -t $p[0] $p[1] $p[2] $c;
-    }
-
-
-    proc wrap( string $ss[], string $ds ) // source transform(s)/shape(s)/component(s), destination geometry shape 
-    {
-        global string	$gMainProgressBar;
-        string		$s, $n, $sh;
-        int		$p;
-        
-        print($ss);
-        
-        if (size(`ls -type controlPoint $ds`))
-        {
-            $n=`group -w -em -n "n1"`;							// create temp ('snapper') null
-            geometryConstraint $ds $n;
-
-            progressBar -e -bp -ii 1 -min 0 -max (size($ss)) -st "Shrinkwrapping..." $gMainProgressBar;
-
-            for($s in $ss)
-            {
-                if (`progressBar -q -ic $gMainProgressBar`) break;
-                
-                if (match("[^.]+[.][^.]+[\[].+[\]]",$s)=="")				// (check for component format)
-                {
-                    // object
-                    
-                    $sh=$s;
-                    
-                    if (size(`ls -tr $s`))						// transform node
-                    {
-                        if (($sh=toshape($s))=="")				// find shape node
-                        {
-                            wrapc($s,$n);					// no shape: snap transform
-                            $sh="";
-                        }
-                    }
-                    
-                    if (($sh!="")&&size(`ls -type controlPoint $sh`))		// geom. shape node: snap all control points
-                    {
-                        $m=`getAttr -s ($sh+".controlPoints")`;
-                        $p=`progressBar -q -pr $gMainProgressBar`;
-                        
-                        progressBar -e -min 0 -max $m -st "Wrapping object..." $gMainProgressBar;
-                        
-                        for($i=0;$i<$m;$i++)
-                        {
-                            if (`progressBar -q -ic $gMainProgressBar`) break;
-                            progressBar -e -s 1 $gMainProgressBar;
-
-                            wrapc($sh+".controlPoints["+$i+"]",$n);
-                        }
-                        
-                        progressBar -e -min 0 -max (size($ss)) -pr $p -st "Wrapping components..." $gMainProgressBar;
-                    }
-                }
-                else
-                {
-                    // component
-                    
-                    if (($s!="")&&objExists($s)) wrapc($s,$n);
-                }
-            }
-            
-            progressBar -e -ep $gMainProgressBar;
-            delete($n);									// delete temp snapper null
-        }
-        else warn("wrap",$ds+" doesn't exist or not a surface shape");
-    }
-
-
-    global proc xyShrinkWrap()
-    {
-        string	$sl[]=`ls -fl -sl`, $d;
-        int	$i, $m=size($sl);
-        
-        if ( ($m>1)&&(($d=toshape($sl[$m-1]))!="") )
-        {
-            $sl[$m-1]="";
-            wrap($sl,$d);
-        }
-        else warn("xyShrinkWrap","Select some objects; select object to shrinkwrap to last");
-    }
-    
-    ''')
-    
-    mel.eval('xyShrinkWrap()')
-    mc.select(sl, r=1)
-
-
 ##########################################################
 ''' Copy Skin To Nurbs - 01/06/2017 '''
 ##########################################################
@@ -1269,6 +1137,138 @@ def createMeasureTool(startObj, endObj):
     res = mel.eval('js_createMeasureTool("%s", "%s")'%(startObj, endObj))
     
     return res
+
+
+#######################################################################################################
+''' xyShrinkWrap 03/04/2017 ''' #########################################################
+#######################################################################################################
+
+def xyShrinkWrap():
+    '''- createMeasureOnSelected help
+    
+    Description:  Temporary mel version from xyShrinkWrap
+    Dependencies: NONE
+    Date:         03/04/2017
+    Example:      startObj, targetObj = mc.ls(sl=1)
+                  res = xyShrinkWrap(startObj, targetObj)
+    
+    '''
+    #mc.select(startObj, targetObj, r=1)
+    sl = mc.ls(sl=1)
+    mel.eval('''
+    proc warn( string $mod, string $msg )
+    {
+        warning("xyShrinkWrap::"+$mod+"(): "+$msg);
+    }
+
+
+    global proc string toshape( string $n )
+    {
+        string	$s[];
+
+        if (objExists($n))
+        {
+            $s=`listRelatives -pa -s -ni $n`;
+            $s=`ls -type controlPoint $n $s[0]`;
+        }
+        
+        return($s[0]);
+    }
+
+
+    proc wrapc( string $c, string $n ) // component (node.attr), wrapper transform
+    {
+        float	$p[];
+        
+        $p=`xform -q -ws -t $c`; xform -ws -t $p[0] $p[1] $p[2] $n;
+        $p=`xform -q -ws -t $n`; xform -ws -t $p[0] $p[1] $p[2] $c;
+    }
+
+
+    proc wrap( string $ss[], string $ds ) // source transform(s)/shape(s)/component(s), destination geometry shape 
+    {
+        global string	$gMainProgressBar;
+        string		$s, $n, $sh;
+        int		$p;
+        
+        print($ss);
+        
+        if (size(`ls -type controlPoint $ds`))
+        {
+            $n=`group -w -em -n "n1"`;							// create temp ('snapper') null
+            geometryConstraint $ds $n;
+
+            progressBar -e -bp -ii 1 -min 0 -max (size($ss)) -st "Shrinkwrapping..." $gMainProgressBar;
+
+            for($s in $ss)
+            {
+                if (`progressBar -q -ic $gMainProgressBar`) break;
+                
+                if (match("[^.]+[.][^.]+[\[].+[\]]",$s)=="")				// (check for component format)
+                {
+                    // object
+                    
+                    $sh=$s;
+                    
+                    if (size(`ls -tr $s`))						// transform node
+                    {
+                        if (($sh=toshape($s))=="")				// find shape node
+                        {
+                            wrapc($s,$n);					// no shape: snap transform
+                            $sh="";
+                        }
+                    }
+                    
+                    if (($sh!="")&&size(`ls -type controlPoint $sh`))		// geom. shape node: snap all control points
+                    {
+                        $m=`getAttr -s ($sh+".controlPoints")`;
+                        $p=`progressBar -q -pr $gMainProgressBar`;
+                        
+                        progressBar -e -min 0 -max $m -st "Wrapping object..." $gMainProgressBar;
+                        
+                        for($i=0;$i<$m;$i++)
+                        {
+                            if (`progressBar -q -ic $gMainProgressBar`) break;
+                            progressBar -e -s 1 $gMainProgressBar;
+
+                            wrapc($sh+".controlPoints["+$i+"]",$n);
+                        }
+                        
+                        progressBar -e -min 0 -max (size($ss)) -pr $p -st "Wrapping components..." $gMainProgressBar;
+                    }
+                }
+                else
+                {
+                    // component
+                    
+                    if (($s!="")&&objExists($s)) wrapc($s,$n);
+                }
+            }
+            
+            progressBar -e -ep $gMainProgressBar;
+            delete($n);									// delete temp snapper null
+        }
+        else warn("wrap",$ds+" doesn't exist or not a surface shape");
+    }
+
+
+    global proc xyShrinkWrap()
+    {
+        string	$sl[]=`ls -fl -sl`, $d;
+        int	$i, $m=size($sl);
+        
+        if ( ($m>1)&&(($d=toshape($sl[$m-1]))!="") )
+        {
+            $sl[$m-1]="";
+            wrap($sl,$d);
+        }
+        else warn("xyShrinkWrap","Select some objects; select object to shrinkwrap to last");
+    }
+    
+    ''')
+    
+    mel.eval('xyShrinkWrap()')
+    mc.select(sl, r=1)
 
 
 #######################################################################################################
