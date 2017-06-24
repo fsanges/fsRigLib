@@ -1,11 +1,15 @@
 '''###############################################################################################################################
 Author: Felipe Sanges - 2013
+fsanges1@gmail.com
 
-Nurbs ribbon tool with a variable layer count and weighted influences. The ribbon has a variable numbers of skinClusters 
-layered with a variable number of joints evenly spaced in U and/or V directions. Weights are automatically calculated 
-according to the number of joints in it's skinCluster.
+This tool creates a Layered Weighted Nurbs Ribbon. Each layer has one automatically weighted skinCluster, with a variable 
+number of joints evenly spaced in U and/or V directions or both. Weights are extracted from the nurbs surface's own quadratic 
+deformation weights (Other surface degrees to be implemented yet). 
 
-This script is a work in progress. There's a lot of improvements to be made and I apologize for the dirty code :/
+OBS : The hole system uses the bindPreMatrix of each skinCluster, allowing it to follow any deformation applied to the 
+driverSurface.
+
+This script is a work in progress. There's a lot of improvements to be made and I apologize for the dirty code :/ But it works :)
 ToDo:
         -Recreate UI with QT
         -Fix locked attrs
